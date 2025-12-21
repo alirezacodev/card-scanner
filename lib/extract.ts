@@ -1,0 +1,1 @@
+export { extractFromImage } from "./providers";
