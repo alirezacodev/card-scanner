@@ -17,6 +17,7 @@ export default function VinScanner() {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
 
   // Cleanup object URLs on unmount or when preview changes
   useEffect(() => {
@@ -171,6 +172,7 @@ export default function VinScanner() {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
+    setCameraReady(false);
     if (videoRef.current) {
       (videoRef.current as HTMLVideoElement & { srcObject?: MediaStream | null }).srcObject =
         null;
@@ -191,11 +193,18 @@ export default function VinScanner() {
       });
       streamRef.current = stream;
       if (videoRef.current) {
-        (videoRef.current as HTMLVideoElement & { srcObject?: MediaStream | null }).srcObject =
-          stream;
-        void videoRef.current.play().catch(() => {
-          // Ignore play errors (often auto-play restrictions)
-        });
+        const videoEl = videoRef.current as HTMLVideoElement & {
+          srcObject?: MediaStream | null;
+        };
+        videoEl.srcObject = stream;
+        setCameraReady(false);
+        videoEl.onloadedmetadata = () => {
+          setCameraReady(true);
+          void videoEl.play().catch((error) => {
+            setCameraError(`Unable to play video: ${error.message}`);
+            // Ignore play errors (often auto-play restrictions)
+          });
+        };
       }
       setCameraOpen(true);
     } catch (err) {
@@ -458,9 +467,9 @@ export default function VinScanner() {
             >
               <button
                 onClick={captureFromCamera}
-                disabled={isCapturing || loading}
+                disabled={isCapturing || loading || !cameraReady}
               >
-                {isCapturing ? "Capturing..." : "Capture"}
+                {isCapturing ? "Capturing..." : cameraReady ? "Capture" : "Initializing camera..."}
               </button>
               <button
                 type="button"
