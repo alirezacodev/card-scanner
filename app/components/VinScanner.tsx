@@ -160,64 +160,6 @@ export default function VinScanner() {
     });
   };
 
-  // Crop a guided region where the VIN typically appears (bottom portion, centered)
-  const cropToVinRegion = async (file: File): Promise<File> => {
-    return new Promise((resolve, reject) => {
-      const img = document.createElement("img");
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          reject(new Error("Could not get canvas context"));
-          return;
-        }
-
-        // Define crop region relative to the image size
-        const cropWidth = img.width * 0.9; // 90% width, centered
-        const cropHeight = img.height * 0.35; // bottom 35%
-        const cropX = (img.width - cropWidth) / 2;
-        const cropY = img.height * 0.55; // start a bit past halfway down
-
-        canvas.width = cropWidth;
-        canvas.height = cropHeight;
-
-        ctx.drawImage(
-          img,
-          cropX,
-          cropY,
-          cropWidth,
-          cropHeight,
-          0,
-          0,
-          cropWidth,
-          cropHeight
-        );
-
-        canvas.toBlob(
-          (blob) => {
-            if (!blob) {
-              reject(new Error("Failed to create blob from crop"));
-              return;
-            }
-            const croppedFile = new File([blob], file.name, {
-              type: file.type || "image/png",
-              lastModified: Date.now()
-            });
-            resolve(croppedFile);
-          },
-          file.type || "image/png",
-          0.95
-        );
-      };
-
-      img.onerror = () => {
-        reject(new Error("Failed to load image for cropping"));
-      };
-
-      img.src = URL.createObjectURL(file);
-    });
-  };
-
   const handleScanVin = async () => {
     if (!imageFile) {
       setError("Please upload an image first");
@@ -230,14 +172,13 @@ export default function VinScanner() {
     setRawOcrText("");
 
     try {
-      // Preprocess image: crop to VIN region, then enhance brightness/contrast if needed
+      // Preprocess image: enhance brightness/contrast if needed
       let processedFile = imageFile;
       try {
-        const cropped = await cropToVinRegion(imageFile);
-        processedFile = await enhanceImage(cropped);
+        processedFile = await enhanceImage(imageFile);
       } catch (enhanceError) {
-        console.warn("Image crop/enhance failed, using original:", enhanceError);
-        // Continue with original file if preprocessing fails
+        console.warn("Image enhancement failed, using original:", enhanceError);
+        // Continue with original file if enhancement fails
         processedFile = imageFile;
       }
 
@@ -314,38 +255,21 @@ export default function VinScanner() {
 
         {previewUrl && (
           <div className="preview" style={{ marginTop: 16 }}>
-            <div style={{ position: "relative", display: "inline-block" }}>
-              <Image
-                src={previewUrl}
-                alt="Image preview"
-                width={260}
-                height={180}
-                className="preview-image"
-                unoptimized
-                style={{ width: "auto", height: "180px", maxWidth: "100%" }}
-              />
-              {/* Visual guide rectangle to frame the VIN area (bottom band) */}
-              <div
-                style={{
-                  position: "absolute",
-                  left: "5%",
-                  right: "5%",
-                  bottom: "10%",
-                  height: "20%",
-                  border: "2px dashed rgba(255,255,255,0.65)",
-                  borderRadius: 12,
-                  boxShadow: "0 0 0 9999px rgba(0,0,0,0.25)",
-                  pointerEvents: "none"
-                }}
-                aria-hidden="true"
-              />
-            </div>
+            <Image
+              src={previewUrl}
+              alt="Image preview"
+              width={200}
+              height={200}
+              className="preview-image"
+              unoptimized
+              style={{ width: "auto", height: "200px", maxWidth: "100%" }}
+            />
             <div>
               <div style={{ fontWeight: 600, marginBottom: 4 }}>
                 {imageFile?.name}
               </div>
               <div style={{ fontSize: "14px", color: "#94a3b8" }}>
-                {Math.round((imageFile?.size ?? 0) / 1024)} KB
+                {(imageFile?.size ?? 0) / 1024} KB
               </div>
             </div>
           </div>
