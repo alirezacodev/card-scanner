@@ -18,6 +18,7 @@ export default function VinScanner() {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
+  const [cameraDebug, setCameraDebug] = useState<string | null>(null);
 
   // Cleanup object URLs on unmount or when preview changes
   useEffect(() => {
@@ -173,6 +174,7 @@ export default function VinScanner() {
       streamRef.current = null;
     }
     setCameraReady(false);
+    setCameraDebug(null);
     if (videoRef.current) {
       (videoRef.current as HTMLVideoElement & { srcObject?: MediaStream | null }).srcObject =
         null;
@@ -196,11 +198,32 @@ export default function VinScanner() {
         const videoEl = videoRef.current as HTMLVideoElement & {
           srcObject?: MediaStream | null;
         };
-        videoEl.srcObject = stream;
+        // Attach stream to video element, with fallback for older browsers
+        try {
+          if ("srcObject" in videoEl) {
+            (videoEl as HTMLVideoElement & { srcObject: MediaStream | null }).srcObject =
+              stream;
+          } else {
+            // Deprecated but still used on some old Android WebViews
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (videoEl as any).src = window.URL.createObjectURL(
+              stream as unknown as Blob
+            );
+          }
+        } catch (err) {
+          const message =
+            err instanceof Error ? err.message : String(err);
+          setCameraError(`Failed to attach camera stream: ${message}`);
+          setCameraDebug(`attach-error: ${message}`);
+        }
         setCameraReady(false);
+        setCameraDebug("stream-attached");
 
         const markReady = () => {
           setCameraReady(true);
+          setCameraDebug(
+            `ready width=${videoEl.videoWidth} height=${videoEl.videoHeight}`
+          );
         };
 
         videoEl.onloadedmetadata = markReady;
@@ -208,28 +231,32 @@ export default function VinScanner() {
 
         // Fallback in case events never fire (some mobile browsers)
         const checkDimensions = () => {
-          if (videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+          const { videoWidth, videoHeight } = videoEl;
+          if (videoWidth > 0 && videoHeight > 0) {
             setCameraReady(true);
+            setCameraDebug(`dims width=${videoWidth} height=${videoHeight}`);
             return true;
           }
+          setCameraDebug("dims width=0 height=0");
           return false;
         };
 
         // Initial check after a short delay
-        window.setTimeout(checkDimensions, 500);
+        window.setTimeout(checkDimensions, 800);
 
         void videoEl
           .play()
           .then(() => {
             if (!checkDimensions()) {
               // Re-check after play starts
-              window.setTimeout(checkDimensions, 500);
+              window.setTimeout(checkDimensions, 800);
             }
           })
           .catch((error) => {
             const message =
               error instanceof Error ? error.message : String(error);
             setCameraError(`Camera preview failed to start: ${message}`);
+            setCameraDebug(`play-error: ${message}`);
           });
       }
       setCameraOpen(true);
@@ -483,6 +510,11 @@ export default function VinScanner() {
             {cameraError && (
               <p style={{ marginTop: 4 }} className="error">
                 {cameraError}
+              </p>
+            )}
+            {cameraDebug && (
+              <p style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
+                Camera debug: {cameraDebug}
               </p>
             )}
             <div
