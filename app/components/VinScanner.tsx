@@ -306,7 +306,7 @@ export default function VinScanner() {
 
       // Crop region mirrors the planned overlay: bottom band, centered
       const cropWidth = videoWidth * 0.9;
-      const cropHeight = videoHeight * 0.35;
+      const cropHeight = videoHeight * 0.15;
       const cropX = (videoWidth - cropWidth) / 2;
       const cropY = videoHeight * 0.55;
 
