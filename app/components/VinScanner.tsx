@@ -198,13 +198,39 @@ export default function VinScanner() {
         };
         videoEl.srcObject = stream;
         setCameraReady(false);
-        videoEl.onloadedmetadata = () => {
+
+        const markReady = () => {
           setCameraReady(true);
-          void videoEl.play().catch((error) => {
-            setCameraError(`Unable to play video: ${error.message}`);
-            // Ignore play errors (often auto-play restrictions)
-          });
         };
+
+        videoEl.onloadedmetadata = markReady;
+        videoEl.oncanplay = markReady;
+
+        // Fallback in case events never fire (some mobile browsers)
+        const checkDimensions = () => {
+          if (videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+            setCameraReady(true);
+            return true;
+          }
+          return false;
+        };
+
+        // Initial check after a short delay
+        window.setTimeout(checkDimensions, 500);
+
+        void videoEl
+          .play()
+          .then(() => {
+            if (!checkDimensions()) {
+              // Re-check after play starts
+              window.setTimeout(checkDimensions, 500);
+            }
+          })
+          .catch((error) => {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            setCameraError(`Camera preview failed to start: ${message}`);
+          });
       }
       setCameraOpen(true);
     } catch (err) {
@@ -226,7 +252,9 @@ export default function VinScanner() {
   const captureFromCamera = async () => {
     const video = videoRef.current;
     if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
-      setCameraError("Camera is not ready yet. Please wait a moment.");
+      setCameraError(
+        "Camera is not ready yet. If this message persists for a few seconds, close and reopen the camera."
+      );
       return;
     }
 
