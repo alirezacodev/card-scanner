@@ -5,12 +5,18 @@ import Image from "next/image";
 
 export default function VinScanner() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [rawOcrText, setRawOcrText] = useState<string>("");
   const [detectedVin, setDetectedVin] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
 
   // Cleanup object URLs on unmount or when preview changes
   useEffect(() => {
@@ -160,6 +166,144 @@ export default function VinScanner() {
     });
   };
 
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      (videoRef.current as HTMLVideoElement & { srcObject?: MediaStream | null }).srcObject =
+        null;
+    }
+  };
+
+  const startCamera = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("Camera is not supported in this browser.");
+      return;
+    }
+
+    setIsCapturing(true);
+    setCameraError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" }
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        (videoRef.current as HTMLVideoElement & { srcObject?: MediaStream | null }).srcObject =
+          stream;
+        void videoRef.current.play().catch(() => {
+          // Ignore play errors (often auto-play restrictions)
+        });
+      }
+      setCameraOpen(true);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Unable to access camera.";
+      setCameraError(message);
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const captureFromCamera = async () => {
+    const video = videoRef.current;
+    if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
+      setCameraError("Camera is not ready yet. Please wait a moment.");
+      return;
+    }
+
+    setIsCapturing(true);
+    try {
+      const videoWidth = video.videoWidth;
+      const videoHeight = video.videoHeight;
+
+      // First canvas: full frame
+      const fullCanvas = document.createElement("canvas");
+      fullCanvas.width = videoWidth;
+      fullCanvas.height = videoHeight;
+      const fullCtx = fullCanvas.getContext("2d");
+      if (!fullCtx) {
+        throw new Error("Could not get canvas context");
+      }
+      fullCtx.drawImage(video, 0, 0, videoWidth, videoHeight);
+
+      // Crop region mirrors the planned overlay: bottom band, centered
+      const cropWidth = videoWidth * 0.9;
+      const cropHeight = videoHeight * 0.35;
+      const cropX = (videoWidth - cropWidth) / 2;
+      const cropY = videoHeight * 0.55;
+
+      const cropCanvas = document.createElement("canvas");
+      cropCanvas.width = cropWidth;
+      cropCanvas.height = cropHeight;
+      const cropCtx = cropCanvas.getContext("2d");
+      if (!cropCtx) {
+        throw new Error("Could not get canvas context");
+      }
+
+      cropCtx.drawImage(
+        fullCanvas,
+        cropX,
+        cropY,
+        cropWidth,
+        cropHeight,
+        0,
+        0,
+        cropWidth,
+        cropHeight
+      );
+
+      const blob: Blob = await new Promise((resolve, reject) => {
+        cropCanvas.toBlob(
+          (b) => {
+            if (!b) {
+              reject(new Error("Failed to create blob from canvas"));
+              return;
+            }
+            resolve(b);
+          },
+          "image/png",
+          0.95
+        );
+      });
+
+      const capturedFile = new File([blob], "camera-vin.png", {
+        type: "image/png",
+        lastModified: Date.now()
+      });
+
+      // Update preview (revoke previous if exists)
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      const objectUrl = URL.createObjectURL(blob);
+      setPreviewUrl(objectUrl);
+      setImageFile(capturedFile);
+      setDetectedVin("");
+      setRawOcrText("");
+      setError(null);
+
+      // Close camera after capture
+      stopCamera();
+      setCameraOpen(false);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to capture image from camera.";
+      setCameraError(message);
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
   const handleScanVin = async () => {
     if (!imageFile) {
       setError("Please upload an image first");
@@ -235,6 +379,12 @@ export default function VinScanner() {
             {imageFile ? "Change Image" : "Upload Image"}
           </button>
           <button
+            onClick={startCamera}
+            disabled={loading || isCapturing || cameraOpen}
+          >
+            {isCapturing ? "Opening Camera..." : "Open Camera"}
+          </button>
+          <button
             onClick={handleScanVin}
             disabled={loading || !imageFile}
           >
@@ -252,6 +402,78 @@ export default function VinScanner() {
           onChange={handleFileChange}
           aria-label="Upload image file"
         />
+
+        {cameraOpen && (
+          <div style={{ marginTop: 16 }}>
+            <div
+              style={{
+                position: "relative",
+                width: "100%",
+                maxWidth: 480,
+                margin: "0 auto",
+                borderRadius: 16,
+                overflow: "hidden",
+                border: "1px solid #1f2937",
+                background: "#020617"
+              }}
+            >
+              <video
+                ref={videoRef}
+                autoPlay
+                muted
+                playsInline
+                style={{ width: "100%", height: "auto", display: "block" }}
+              />
+              {/* Overlay frame that matches the crop geometry */}
+              <div
+                style={{
+                  position: "absolute",
+                  left: "5%",
+                  right: "5%",
+                  bottom: "10%",
+                  height: "28%",
+                  border: "2px dashed rgba(248, 250, 252, 0.85)",
+                  borderRadius: 12,
+                  boxShadow: "0 0 0 9999px rgba(0,0,0,0.35)",
+                  pointerEvents: "none"
+                }}
+                aria-hidden="true"
+              />
+            </div>
+            <p style={{ marginTop: 8, fontSize: 13, color: "#9ca3af" }}>
+              Align the VIN text inside the frame, then tap Capture.
+            </p>
+            {cameraError && (
+              <p style={{ marginTop: 4 }} className="error">
+                {cameraError}
+              </p>
+            )}
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                marginTop: 8,
+                flexWrap: "wrap"
+              }}
+            >
+              <button
+                onClick={captureFromCamera}
+                disabled={isCapturing || loading}
+              >
+                {isCapturing ? "Capturing..." : "Capture"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  stopCamera();
+                  setCameraOpen(false);
+                }}
+              >
+                Close Camera
+              </button>
+            </div>
+          </div>
+        )}
 
         {previewUrl && (
           <div className="preview" style={{ marginTop: 16 }}>
