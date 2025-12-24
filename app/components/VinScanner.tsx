@@ -187,6 +187,11 @@ export default function VinScanner() {
       return;
     }
 
+    // Ensure the camera UI (video element) is rendered before we attach the stream
+    setCameraOpen(true);
+    setCameraReady(false);
+    setCameraDebug(null);
+
     setIsCapturing(true);
     setCameraError(null);
     try {
@@ -259,7 +264,6 @@ export default function VinScanner() {
             setCameraDebug(`play-error: ${message}`);
           });
       }
-      setCameraOpen(true);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Unable to access camera.";
